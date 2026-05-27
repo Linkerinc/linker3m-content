@@ -273,24 +273,46 @@ function render(){
 }
 
 /* ===================== 깃허브 폴더에서 이미지 자동 읽기 ===================== */
-const imgCache={};
 async function fetchImages(name, folder){
-  const key=folder||name;
-  if(imgCache[key])return imgCache[key];
+  await loadTree();
   const fname=folder||name;
-  const seg=CONFIG.GH_IMG_ROOT?`${encodeURIComponent(CONFIG.GH_IMG_ROOT)}/${encodeURIComponent(fname)}`:`${encodeURIComponent(fname)}`;
-  const api=`https://api.github.com/repos/${CONFIG.GH_OWNER}/${CONFIG.GH_REPO}/contents/${seg}?ref=${CONFIG.GH_BRANCH}`;
+  return imagesFromTree(fname);
+}
+
+
+
+/* 저장소 전체 파일 트리를 한 번에 로드 (rate limit 방지 핵심) */
+let TREE=null, TREE_FOLDERS=null;
+const TREE_TTL=30*60*1000; // 30분 캐시
+async function loadTree(){
+  if(TREE!==null) return TREE;
+  // 세션 캐시 확인 (새로고침해도 30분 유지)
+  try{
+    const c=JSON.parse(sessionStorage.getItem('l3m_tree')||'null');
+    if(c && (Date.now()-c.t < TREE_TTL)){ TREE=c.tree; TREE_FOLDERS=c.folders; return TREE; }
+  }catch(e){}
+  const api=`https://api.github.com/repos/${CONFIG.GH_OWNER}/${CONFIG.GH_REPO}/git/trees/${CONFIG.GH_BRANCH}?recursive=1`;
   try{
     const res=await fetch(api);
     if(!res.ok)throw 0;
-    const files=await res.json();
-    const imgs=files.filter(f=>/\.(png|jpe?g|gif|webp)$/i.test(f.name))
-      .sort((a,b)=>{const na=parseInt(a.name),nb=parseInt(b.name);if(!isNaN(na)&&!isNaN(nb))return na-nb;return a.name.localeCompare(b.name)})
-      .map(f=>f.download_url);
-    imgCache[key]=imgs;return imgs;
-  }catch(e){imgCache[key]=[];return []}
+    const data=await res.json();
+    TREE=data.tree.filter(x=>x.type==="blob").map(x=>x.path);
+    // 최상위 폴더 이름 모으기
+    const set=new Set();
+    TREE.forEach(p=>{const i=p.indexOf('/'); if(i>0) set.add(p.slice(0,i));});
+    TREE_FOLDERS=[...set];
+    try{ sessionStorage.setItem('l3m_tree', JSON.stringify({t:Date.now(),tree:TREE,folders:TREE_FOLDERS})); }catch(e){}
+  }catch(e){ TREE=TREE||[]; TREE_FOLDERS=TREE_FOLDERS||[]; }
+  return TREE;
 }
-
+function imagesFromTree(folder){
+  if(!TREE) return [];
+  const prefix=folder+"/";
+  const base=`https://raw.githubusercontent.com/${CONFIG.GH_OWNER}/${CONFIG.GH_REPO}/${CONFIG.GH_BRANCH}/`;
+  return TREE.filter(p=>p.startsWith(prefix) && /\.(png|jpe?g|gif|webp)$/i.test(p) && p.indexOf('/',prefix.length)<0)
+    .sort((a,b)=>{const na=parseInt(a.split('/').pop()),nb=parseInt(b.split('/').pop());if(!isNaN(na)&&!isNaN(nb))return na-nb;return a.localeCompare(b);})
+    .map(p=>base+p.split('/').map(encodeURIComponent).join('/'));
+}
 
 /* 저장소 폴더 목록 캐시 + 자동 매칭 */
 let REPO_FOLDERS=null;
@@ -304,14 +326,8 @@ function normName(x){
 }
 async function loadRepoFolders(){
   if(REPO_FOLDERS!==null) return REPO_FOLDERS;
-  const root=CONFIG.GH_IMG_ROOT?encodeURIComponent(CONFIG.GH_IMG_ROOT):"";
-  const api=`https://api.github.com/repos/${CONFIG.GH_OWNER}/${CONFIG.GH_REPO}/contents/${root}?ref=${CONFIG.GH_BRANCH}`;
-  try{
-    const res=await fetch(api);
-    if(!res.ok)throw 0;
-    const items=await res.json();
-    REPO_FOLDERS=items.filter(x=>x.type==="dir").map(x=>x.name);
-  }catch(e){REPO_FOLDERS=[]}
+  await loadTree();
+  REPO_FOLDERS=TREE_FOLDERS||[];
   return REPO_FOLDERS;
 }
 function matchFolder(product){
