@@ -6,9 +6,8 @@
 <title>3M 컨텐츠 | Linker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PptxGenJS/3.12.0/pptxgen.bundle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 <style>
   :root{
     --3m-red:#ff0000;--ink:#1a1a1a;--paper:#ffffff;--line:#e2e2e2;--muted:#9a9a9a;
@@ -225,11 +224,25 @@ async function loadProducts(){
     const ci=idx("구분"),ni=idx("제품명"),di=idx("다운로드"),ti=idx("등록일");
     PRODUCTS=rows.slice(1).filter(r=>r[ni]&&r[ni].trim()).map(r=>({
       category:(r[ci]||"").trim(),name:(r[ni]||"").trim(),
-      download:(r[di]||"").trim(),date:(r[ti]||"").trim()
+      download:(r[di]||"").trim(),date:normDate((r[ti]||"").trim())
     }));
     afterLoad("");
   }catch(e){PRODUCTS=DEMO.slice();afterLoad("시트를 불러오지 못했습니다. 데모 데이터를 표시합니다.")}
 }
+
+function normDate(v){
+  if(!v) return "";
+  v=String(v).trim();
+  // 숫자.숫자.숫자 또는 -, / 구분
+  let m=v.match(/(\d{2,4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})/);
+  if(m){
+    let y=m[1]; if(y.length===2) y="20"+y;
+    let mo=("0"+m[2]).slice(-2), d=("0"+m[3]).slice(-2);
+    return `${y}-${mo}-${d}`;
+  }
+  return v;
+}
+
 function afterLoad(msg){buildCats();render();fillAdminCat();if(msg)document.getElementById('count').textContent=msg}
 
 /* ===================== 카테고리/표 ===================== */
@@ -356,6 +369,7 @@ async function makePPT(){
   const list=getFiltered();
   const errEl=document.getElementById('adminErr');errEl.textContent="";
   if(!list.length){errEl.textContent="대상 제품이 없습니다. 기간/카테고리를 확인하세요.";return}
+  if(typeof PptxGenJS==='undefined'){errEl.textContent="PPT 생성 도구를 불러오지 못했습니다. 잠시 후 새로고침 해주세요.";return}
   const stat=document.getElementById('adminStatus');
   const pptx=new PptxGenJS();pptx.defineLayout({name:'W',width:13.33,height:7.5});pptx.layout='W';
   // 표지
