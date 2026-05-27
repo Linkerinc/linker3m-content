@@ -159,7 +159,9 @@
     <div class="admin-actions">
       <button class="btn btn-lg btn-ppt" onclick="makePPT()">📊 PPT 생성</button>
       <button class="btn btn-lg btn-xlsx" onclick="makeXLSX()">📥 제작 리스트 엑셀</button>
+      <button class="btn btn-lg" style="background:#555" onclick="checkMatch()">🔗 이미지 매칭 확인</button>
     </div>
+    <div id="matchResult" style="margin-top:18px;font-family:var(--kor);font-size:13px;display:none"></div>
     <div class="err" id="adminErr"></div>
   </div>
 </div>
@@ -221,10 +223,11 @@ async function loadProducts(){
     const res=await fetch(CONFIG.SHEET_CSV_URL);const txt=await res.text();
     const rows=parseCSV(txt);const head=rows[0].map(h=>h.trim());
     const idx=n=>head.findIndex(h=>h.replace(/\s/g,"").includes(n));
-    const ci=idx("구분"),ni=idx("제품명"),di=idx("다운로드"),ti=idx("등록일");
+    const ci=idx("구분"),ni=idx("제품명"),di=idx("다운로드"),ti=idx("등록일"),fi=idx("폴더명");
     PRODUCTS=rows.slice(1).filter(r=>r[ni]&&r[ni].trim()).map(r=>({
       category:(r[ci]||"").trim(),name:(r[ni]||"").trim(),
-      download:(r[di]||"").trim(),date:normDate((r[ti]||"").trim())
+      download:(r[di]||"").trim(),date:normDate((r[ti]||"").trim()),
+      folder:(fi>=0&&r[fi]?r[fi].trim():"")
     }));
     afterLoad("");
   }catch(e){PRODUCTS=DEMO.slice();afterLoad("시트를 불러오지 못했습니다. 데모 데이터를 표시합니다.")}
@@ -243,7 +246,7 @@ function normDate(v){
   return v;
 }
 
-function afterLoad(msg){buildCats();render();fillAdminCat();if(msg)document.getElementById('count').textContent=msg}
+function afterLoad(msg){buildCats();render();fillAdminCat();if(msg)document.getElementById('count').textContent=msg;loadRepoFolders()}
 
 /* ===================== 카테고리/표 ===================== */
 function buildCats(){
@@ -271,10 +274,12 @@ function render(){
 
 /* ===================== 깃허브 폴더에서 이미지 자동 읽기 ===================== */
 const imgCache={};
-async function fetchImages(name){
-  if(imgCache[name])return imgCache[name];
-  const folder=CONFIG.GH_IMG_ROOT?`${encodeURIComponent(CONFIG.GH_IMG_ROOT)}/${encodeURIComponent(name)}`:`${encodeURIComponent(name)}`;
-  const api=`https://api.github.com/repos/${CONFIG.GH_OWNER}/${CONFIG.GH_REPO}/contents/${folder}?ref=${CONFIG.GH_BRANCH}`;
+async function fetchImages(name, folder){
+  const key=folder||name;
+  if(imgCache[key])return imgCache[key];
+  const fname=folder||name;
+  const seg=CONFIG.GH_IMG_ROOT?`${encodeURIComponent(CONFIG.GH_IMG_ROOT)}/${encodeURIComponent(fname)}`:`${encodeURIComponent(fname)}`;
+  const api=`https://api.github.com/repos/${CONFIG.GH_OWNER}/${CONFIG.GH_REPO}/contents/${seg}?ref=${CONFIG.GH_BRANCH}`;
   try{
     const res=await fetch(api);
     if(!res.ok)throw 0;
@@ -282,8 +287,45 @@ async function fetchImages(name){
     const imgs=files.filter(f=>/\.(png|jpe?g|gif|webp)$/i.test(f.name))
       .sort((a,b)=>{const na=parseInt(a.name),nb=parseInt(b.name);if(!isNaN(na)&&!isNaN(nb))return na-nb;return a.name.localeCompare(b.name)})
       .map(f=>f.download_url);
-    imgCache[name]=imgs;return imgs;
-  }catch(e){imgCache[name]=[];return []}
+    imgCache[key]=imgs;return imgs;
+  }catch(e){imgCache[key]=[];return []}
+}
+
+
+/* 저장소 폴더 목록 캐시 + 자동 매칭 */
+let REPO_FOLDERS=null;
+function normName(x){
+  if(!x) return "";
+  x=String(x);
+  x=x.replace(/상세페이지/g,"").replace(/업로드\s*요청/g,"").replace(/시리즈/g,"");
+  x=x.replace(/3M|3m/g,"").replace(/®|™/g,"");
+  x=x.replace(/[\s\-_(),.\/+]/g,"");
+  return x.toLowerCase();
+}
+async function loadRepoFolders(){
+  if(REPO_FOLDERS!==null) return REPO_FOLDERS;
+  const root=CONFIG.GH_IMG_ROOT?encodeURIComponent(CONFIG.GH_IMG_ROOT):"";
+  const api=`https://api.github.com/repos/${CONFIG.GH_OWNER}/${CONFIG.GH_REPO}/contents/${root}?ref=${CONFIG.GH_BRANCH}`;
+  try{
+    const res=await fetch(api);
+    if(!res.ok)throw 0;
+    const items=await res.json();
+    REPO_FOLDERS=items.filter(x=>x.type==="dir").map(x=>x.name);
+  }catch(e){REPO_FOLDERS=[]}
+  return REPO_FOLDERS;
+}
+function matchFolder(product){
+  // 1. 폴더명 칸이 적혀 있으면 그걸 최우선
+  if(product.folder) return product.folder;
+  if(!REPO_FOLDERS||!REPO_FOLDERS.length) return product.name;
+  const target=normName(product.name);
+  // 정확히 일치
+  let hit=REPO_FOLDERS.find(f=>normName(f)===target);
+  if(hit) return hit;
+  // 폴더 핵심이 제품명 핵심을 포함하거나 그 반대
+  hit=REPO_FOLDERS.find(f=>{const nf=normName(f);return nf&&target&&(nf.includes(target)||target.includes(nf))});
+  if(hit) return hit;
+  return product.name; // 못 찾으면 제품명 그대로(없으면 이미지 비표시)
 }
 
 /* ===================== 미리보기 모달 ===================== */
@@ -296,8 +338,10 @@ async function openModal(p){
   const dl=document.getElementById('m-dl');
   if(p.download){dl.href=p.download;dl.setAttribute('target','_blank');dl.onclick=null;dl.style.display="inline-block"}else dl.style.display="none";
   overlay.classList.add('open');document.body.style.overflow='hidden';
-  const imgs=await fetchImages(p.name);
-  if(!imgs.length){body.innerHTML=`<div class="loading">등록된 미리보기 이미지가 없습니다.<br><span style="font-size:12px">깃허브 ${p.name}/ 폴더에 이미지를 올리면 표시됩니다.</span></div>`;return}
+  await loadRepoFolders();
+  const fdr=matchFolder(p);
+  const imgs=await fetchImages(p.name,fdr);
+  if(!imgs.length){body.innerHTML=`<div class="loading">등록된 미리보기 이미지가 없습니다.<br><span style="font-size:12px">깃허브 ${p.folder||p.name}/ 폴더에 이미지를 올리면 표시됩니다.</span></div>`;return}
   body.innerHTML=imgs.map(src=>`<img src="${src}" alt="${p.name}" loading="lazy">`).join('');
 }
 function closeModal(){overlay.classList.remove('open');document.body.style.overflow=''}
@@ -386,7 +430,8 @@ async function makePPT(){
     sl.addText(p.name,{x:0.4,y:0.3,w:12.5,h:0.6,fontSize:24,bold:true,fontFace:"맑은 고딕"});
     sl.addText(`Download : ${p.download||"-"}`,{x:0.4,y:1.0,w:12.5,h:0.4,fontSize:12,color:"1f7a44",fontFace:"맑은 고딕"});
     sl.addText(`등록일 : ${p.date||"-"}`,{x:0.4,y:1.4,w:12.5,h:0.4,fontSize:12,color:"888888",fontFace:"맑은 고딕"});
-    const imgs=await fetchImages(p.name);
+    const fdr=matchFolder(p);
+    const imgs=await fetchImages(p.name,fdr);
     const n=Math.min(imgs.length,12);
     if(n>0){
       const cols=n<=4?n:(n<=6?3:4);const rows=Math.ceil(n/cols);
@@ -419,6 +464,28 @@ function megaOpen(url){
   // 메가 폴더 링크는 새 탭에서 열면 로그인 화면이 먼저 뜰 수 있어,
   // 사용자에게 안내와 함께 새 탭으로 엽니다.
   window.open(url,'_blank','noopener');
+}
+
+
+async function checkMatch(){
+  const box=document.getElementById('matchResult');
+  box.style.display='block';
+  box.innerHTML="폴더 목록을 확인하는 중…";
+  await loadRepoFolders();
+  if(!REPO_FOLDERS||!REPO_FOLDERS.length){box.innerHTML="<span style='color:#c0392b'>깃허브에서 폴더 목록을 가져오지 못했습니다. 잠시 후 다시 시도해주세요.</span>";return}
+  let ok=[],miss=[];
+  PRODUCTS.forEach(p=>{
+    const f=matchFolder(p);
+    const found=REPO_FOLDERS.includes(f)||p.folder;
+    if(found) ok.push(`${p.name}  →  ${f}`);
+    else miss.push(p.name);
+  });
+  let html=`<div style="margin-bottom:8px"><b>연결된 제품: ${ok.length}개</b> / 폴더 못 찾음: <b style="color:#c0392b">${miss.length}개</b></div>`;
+  if(miss.length){
+    html+=`<div style="background:#fff3f3;border:1px solid #f0c0c0;border-radius:8px;padding:12px;margin-bottom:10px"><b>폴더를 못 찾은 제품 (시트 '폴더명' 칸에 실제 폴더 이름을 적어주세요):</b><br>`+miss.map(m=>"· "+m).join("<br>")+`</div>`;
+  }
+  html+=`<details><summary style="cursor:pointer;color:#2456c9">연결된 제품 ${ok.length}개 보기</summary><div style="max-height:240px;overflow:auto;background:#f7f7f7;border-radius:8px;padding:12px;margin-top:8px;font-size:12.5px;line-height:1.8">`+ok.map(o=>o).join("<br>")+`</div></details>`;
+  box.innerHTML=html;
 }
 
 loadProducts();
