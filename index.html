@@ -190,7 +190,7 @@ const CONFIG = {
   GH_OWNER: "Linkerinc",
   GH_REPO: "linker3m-content",
   GH_BRANCH: "main",
-  GH_IMG_ROOT: "images",   // images/제품명/1.png ...
+  GH_IMG_ROOT: "",   // 저장소 루트 바로 아래 제품명 폴더
   ADMIN_PW: "9087"
 };
 const CAT_ORDER=["쇼츠영상","개인안전보호구","에어로졸/접착제","산업용 테이프","자동차유지보수","건물 유지관리","헬스케어","필터제품","위생관리용품","연마제","썸네일"];
@@ -273,8 +273,8 @@ function render(){
 const imgCache={};
 async function fetchImages(name){
   if(imgCache[name])return imgCache[name];
-  const path=`${CONFIG.GH_IMG_ROOT}/${name}`;
-  const api=`https://api.github.com/repos/${CONFIG.GH_OWNER}/${CONFIG.GH_REPO}/contents/${encodeURIComponent(CONFIG.GH_IMG_ROOT)}/${encodeURIComponent(name)}?ref=${CONFIG.GH_BRANCH}`;
+  const folder=CONFIG.GH_IMG_ROOT?`${encodeURIComponent(CONFIG.GH_IMG_ROOT)}/${encodeURIComponent(name)}`:`${encodeURIComponent(name)}`;
+  const api=`https://api.github.com/repos/${CONFIG.GH_OWNER}/${CONFIG.GH_REPO}/contents/${folder}?ref=${CONFIG.GH_BRANCH}`;
   try{
     const res=await fetch(api);
     if(!res.ok)throw 0;
@@ -297,7 +297,7 @@ async function openModal(p){
   if(p.download){dl.href=p.download;dl.setAttribute('target','_blank');dl.onclick=null;dl.style.display="inline-block"}else dl.style.display="none";
   overlay.classList.add('open');document.body.style.overflow='hidden';
   const imgs=await fetchImages(p.name);
-  if(!imgs.length){body.innerHTML=`<div class="loading">등록된 미리보기 이미지가 없습니다.<br><span style="font-size:12px">깃허브 images/${p.name}/ 폴더에 이미지를 올리면 표시됩니다.</span></div>`;return}
+  if(!imgs.length){body.innerHTML=`<div class="loading">등록된 미리보기 이미지가 없습니다.<br><span style="font-size:12px">깃허브 ${p.name}/ 폴더에 이미지를 올리면 표시됩니다.</span></div>`;return}
   body.innerHTML=imgs.map(src=>`<img src="${src}" alt="${p.name}" loading="lazy">`).join('');
 }
 function closeModal(){overlay.classList.remove('open');document.body.style.overflow=''}
