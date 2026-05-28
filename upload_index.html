@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<title>linker3m 자료 업로드</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel-2:#1d212b; --line:#2a2f3a;
+    --txt:#e7eaf0; --muted:#8a92a3; --accent:#ff4d2e; --accent-soft:#ff4d2e22;
+    --ok:#3ecf8e; --ok-soft:#3ecf8e1a; --warn:#f5b54a; --blue:#5b9dff;
+    --radius:14px; --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);min-height:100vh;
+    font-family:"Pretendard","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+    -webkit-font-smoothing:antialiased;padding:32px 20px 80px;}
+  .wrap{max-width:840px;margin:0 auto}
+  header{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;flex-wrap:wrap;gap:12px}
+  .brand{display:flex;align-items:center;gap:12px}
+  .logo{width:38px;height:38px;border-radius:9px;background:var(--accent);
+    display:grid;place-items:center;font-weight:800;color:#fff;font-size:18px;letter-spacing:-1px}
+  .brand h1{font-size:18px;font-weight:700;letter-spacing:-.3px}
+  .brand p{font-size:12px;color:var(--muted);margin-top:2px}
+  .status{font-size:12px;color:var(--muted);font-family:var(--mono)}
+  .status b{color:var(--ok)}
+
+  .codebar{display:flex;gap:10px;align-items:center;background:var(--panel);
+    border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin-bottom:18px}
+  .codebar label{font-size:13px;color:var(--muted);white-space:nowrap}
+  .codebar input{flex:1;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;
+    color:var(--txt);padding:9px 12px;font-size:14px;font-family:var(--mono)}
+  .codebar input:focus{outline:none;border-color:var(--accent)}
+
+  .folderbar{display:flex;gap:10px;align-items:center;margin-bottom:8px}
+  .folderbar label{font-size:13px;color:var(--muted);white-space:nowrap;flex-shrink:0}
+  .folderbar input{flex:1;min-width:0;background:var(--panel-2);border:1px solid var(--line);
+    border-radius:9px;color:var(--txt);padding:8px 12px;font-size:13px}
+  .folderbar input:focus{outline:none;border-color:var(--accent)}
+  .folderbar .hint{font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0}
+  .folder-note{font-size:11.5px;color:var(--warn);margin:0 2px 16px;line-height:1.5}
+  @media(max-width:560px){.folderbar{flex-wrap:wrap}.folderbar input{flex-basis:100%}.folderbar .hint{display:none}}
+
+  .drop{border:2px dashed var(--line);border-radius:var(--radius);background:var(--panel);
+    padding:48px 24px;text-align:center;cursor:pointer;transition:.18s;position:relative}
+  .drop:hover{border-color:var(--accent);background:var(--panel-2)}
+  .drop.over{border-color:var(--accent);background:var(--accent-soft);transform:scale(1.005)}
+  .drop .ic{font-size:40px;margin-bottom:10px;opacity:.9}
+  .drop h3{font-size:16px;font-weight:600;margin-bottom:6px}
+  .drop p{font-size:13px;color:var(--muted)}
+  .drop input[type=file]{display:none}
+
+  .queue{margin-top:20px;display:flex;flex-direction:column;gap:8px}
+  .item{display:flex;align-items:center;gap:12px;background:var(--panel);
+    border:1px solid var(--line);border-radius:11px;padding:10px 14px}
+  .item .num{font-family:var(--mono);font-size:13px;font-weight:700;color:var(--accent);
+    width:30px;text-align:center;flex-shrink:0}
+  .item .name{flex:1;font-size:13px;overflow:hidden;min-width:0}
+  .item .name .orig{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item .name .saveas{display:block;font-size:11px;color:var(--blue);font-family:var(--mono);margin-top:2px}
+  .item .size{font-size:11px;color:var(--muted);font-family:var(--mono);white-space:nowrap}
+  .item .bar{width:80px;height:6px;border-radius:3px;background:var(--panel-2);overflow:hidden}
+  .item .bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s}
+  .item .st{font-size:11px;font-family:var(--mono);white-space:nowrap;width:48px;text-align:right}
+  .item.done .bar i{background:var(--ok)}
+  .item.done .st{color:var(--ok)}
+  .item.err .bar i{background:var(--warn);width:100%!important}
+  .item.err .st{color:var(--warn)}
+  .item.dup{border-color:var(--warn)}
+  .item.dup .num{color:var(--warn)}
+
+  .actions{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  button.go{background:var(--accent);color:#fff;border:none;border-radius:10px;
+    padding:11px 22px;font-size:14px;font-weight:700;cursor:pointer;transition:.15s}
+  button.go:hover{filter:brightness(1.08)}
+  button.go:disabled{opacity:.4;cursor:not-allowed}
+  button.ghost{background:transparent;color:var(--muted);border:1px solid var(--line);
+    border-radius:10px;padding:11px 18px;font-size:13px;cursor:pointer}
+  button.ghost:hover{color:var(--txt);border-color:var(--muted)}
+  .warn-msg{font-size:12px;color:var(--warn);font-family:var(--mono)}
+
+  .listhead{display:flex;align-items:center;justify-content:space-between;margin:38px 0 8px}
+  .listhead h2{font-size:15px;font-weight:700}
+  .listhead .cnt{font-size:12px;color:var(--muted);font-family:var(--mono)}
+  .listsub{font-size:11.5px;color:var(--muted);margin:0 2px 14px}
+  .folderfilter{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  .folderfilter button{background:var(--panel);border:1px solid var(--line);color:var(--muted);
+    border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer}
+  .folderfilter button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .files{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px}
+  .file{background:var(--panel);border:1px solid var(--line);border-radius:11px;overflow:hidden;transition:.15s}
+  .file:hover{border-color:var(--muted)}
+  .file .thumb{aspect-ratio:4/3;background:var(--panel-2);display:grid;place-items:center;overflow:hidden}
+  .file .thumb img{width:100%;height:100%;object-fit:cover}
+  .file .thumb .ext{font-size:11px;color:var(--muted);font-family:var(--mono)}
+  .file .meta{padding:9px 11px}
+  .file .meta .fn{font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .file .meta .fs{font-size:10px;color:var(--muted);font-family:var(--mono);margin-top:3px}
+  .empty{color:var(--muted);font-size:13px;text-align:center;padding:30px;grid-column:1/-1}
+  a{color:inherit;text-decoration:none}
+  .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);
+    background:var(--ok);color:#06281c;padding:11px 20px;border-radius:10px;font-size:13px;font-weight:600;
+    opacity:0;pointer-events:none;transition:.25s;z-index:50}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  .toast.bad{background:var(--warn);color:#3a2700}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="brand">
+      <div class="logo">L</div>
+      <div>
+        <h1>linker3m 자료 업로드</h1>
+        <p>파일명 앞 숫자로 자동 정리 · 미리보기 사이트 연동</p>
+      </div>
+    </div>
+    <div class="status" id="status">연결 확인 중…</div>
+  </header>
+
+  <div class="codebar">
+    <label>접근 코드</label>
+    <input type="password" id="code" placeholder="업로드 접근 코드 입력" autocomplete="off">
+  </div>
+
+  <div class="folderbar">
+    <label>폴더명</label>
+    <input type="text" id="folder" placeholder="예: 컴포트 그립 리얼 터치">
+    <span class="hint">시트의 폴더명과 똑같이</span>
+  </div>
+  <div class="folder-note">⚠ 폴더명은 구글시트 '폴더명' 칸(없으면 제품명)과 <b>띄어쓰기까지 정확히</b> 같아야 미리보기에 연결됩니다.</div>
+
+  <div class="drop" id="drop">
+    <input type="file" id="picker" multiple>
+    <div class="ic">⬆</div>
+    <h3>파일을 여기로 끌어다 놓으세요</h3>
+    <p>저장 이름이 자동으로 1.png, 2.gif… 로 정리됩니다</p>
+  </div>
+
+  <div class="queue" id="queue"></div>
+
+  <div class="actions" id="actions" style="display:none">
+    <button class="go" id="uploadBtn">전체 업로드</button>
+    <button class="ghost" id="clearBtn">큐 비우기</button>
+    <span class="warn-msg" id="dupWarn"></span>
+  </div>
+
+  <div class="listhead">
+    <h2>업로드된 자료</h2>
+    <span class="cnt" id="listCnt"></span>
+  </div>
+  <div class="listsub">폴더를 클릭하면 그 안의 파일만 봅니다. 번호 순서대로 정렬됩니다.</div>
+  <div class="folderfilter" id="folderFilter"></div>
+  <div class="files" id="files"><div class="empty">불러오는 중…</div></div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const WORKER = "https://linker3m-r2-list.dr78home.workers.dev";
+const $ = s => document.querySelector(s);
+const codeEl = $("#code"), folderEl = $("#folder");
+let queue = [];        // {file, saveName, num, el, bar, st}
+let allItems = [];     // R2 전체 목록
+let activeFolder = "전체";
+
+function fmtSize(b){
+  if(b<1024) return b+" B";
+  if(b<1048576) return (b/1024).toFixed(0)+" KB";
+  return (b/1048576).toFixed(1)+" MB";
+}
+function toast(msg, bad){
+  const t=$("#toast"); t.textContent=msg; t.className="toast show"+(bad?" bad":"");
+  setTimeout(()=>t.className="toast",2400);
+}
+function extOf(name){ return (name.split(".").pop()||"").toLowerCase(); }
+
+// 파일명 맨 앞 숫자 추출 (예: "4_추천.gif"->4, "10.png"->10, "인트로.png"->null)
+function leadingNum(name){
+  const base = name.replace(/\.[^.]+$/,"");      // 확장자 제거
+  const m = base.match(/^\s*(\d+)/);             // 맨 앞 연속 숫자
+  return m ? parseInt(m[1],10) : null;
+}
+
+// ── 연결 확인 + 목록 ──
+async function checkConn(){
+  try{
+    const r = await fetch(WORKER+"/list");
+    const d = await r.json();
+    $("#status").innerHTML = `Worker 연결됨 · 파일 <b>${d.count}</b>개`;
+    allItems = d.items.filter(it => it.size>0 && !it.key.endsWith("/"));
+    buildFolderFilter();
+    renderFiles();
+  }catch(e){
+    $("#status").textContent = "연결 실패 — Worker 주소 확인 필요";
+  }
+}
+
+// 폴더(첫 경로 조각) 목록 만들기
+function buildFolderFilter(){
+  const folders = [...new Set(allItems.map(it=>{
+    const parts = it.key.split("/");
+    return parts.length>1 ? parts[0] : "(최상위)";
+  }))].sort();
+  const box=$("#folderFilter");
+  const tabs=["전체",...folders];
+  box.innerHTML = tabs.map(f=>`<button class="${f===activeFolder?'on':''}" data-f="${f}">${f}</button>`).join("");
+  box.querySelectorAll("button").forEach(b=>b.onclick=()=>{
+    activeFolder=b.dataset.f;
+    box.querySelectorAll("button").forEach(x=>x.classList.toggle("on",x===b));
+    renderFiles();
+  });
+}
+
+function renderFiles(){
+  const box=$("#files");
+  let list = allItems.slice();
+  if(activeFolder!=="전체"){
+    list = list.filter(it=>{
+      const parts=it.key.split("/");
+      const f = parts.length>1 ? parts[0] : "(최상위)";
+      return f===activeFolder;
+    });
+  }
+  // 번호 순 정렬
+  list.sort((a,b)=>{
+    const na=leadingNum(a.key.split("/").pop())??9999;
+    const nb=leadingNum(b.key.split("/").pop())??9999;
+    return na-nb;
+  });
+  $("#listCnt").textContent = list.length+"개";
+  if(!list.length){ box.innerHTML='<div class="empty">파일이 없습니다.</div>'; return; }
+  box.innerHTML = list.map(it=>{
+    const ext = extOf(it.key);
+    const isImg = ["png","jpg","jpeg","gif","webp","svg"].includes(ext);
+    const thumb = isImg
+      ? `<div class="thumb"><img loading="lazy" src="${it.url}" alt=""></div>`
+      : `<div class="thumb"><span class="ext">.${ext}</span></div>`;
+    const short = it.key.split("/").pop();
+    return `<a class="file" href="${it.url}" target="_blank">
+      ${thumb}<div class="meta"><div class="fn" title="${it.key}">${short}</div>
+      <div class="fs">${fmtSize(it.size)}</div></div></a>`;
+  }).join("");
+}
+
+// ── 큐에 추가 (번호 자동 매김) ──
+function addToQueue(files){
+  const arr=[...files];
+  // 이미 큐에 있는/이번에 부여된 번호 모으기
+  const used = new Set(queue.map(q=>q.num));
+  // 1) 앞 숫자 있는 것 먼저 그 번호 확정
+  const withNum=[], without=[];
+  for(const f of arr){
+    const n=leadingNum(f.name);
+    if(n!==null){ withNum.push({f,n}); } else { without.push({f}); }
+  }
+  withNum.forEach(x=>used.add(x.n));
+  // 2) 숫자 없는 건 빈 번호 채우기
+  let next=1;
+  function nextFree(){ while(used.has(next)) next++; used.add(next); return next; }
+  const prepared=[];
+  withNum.forEach(x=>prepared.push({f:x.f, num:x.n}));
+  without.forEach(x=>prepared.push({f:x.f, num:nextFree()}));
+  // 번호순 정렬해서 큐에 넣기
+  prepared.sort((a,b)=>a.num-b.num);
+
+  for(const p of prepared){
+    const ext = extOf(p.f.name);
+    const saveName = `${p.num}.${ext}`;
+    const el=document.createElement("div"); el.className="item";
+    el.innerHTML=`<span class="num">${p.num}</span>
+      <span class="name"><span class="orig">${p.f.name}</span>
+        <span class="saveas">→ ${saveName}</span></span>
+      <span class="size">${fmtSize(p.f.size)}</span>
+      <span class="bar"><i></i></span>
+      <span class="st">대기</span>`;
+    $("#queue").appendChild(el);
+    queue.push({file:p.f, saveName, num:p.num, el, bar:el.querySelector("i"), st:el.querySelector(".st")});
+  }
+  flagDuplicates();
+  $("#actions").style.display = queue.length ? "flex" : "none";
+}
+
+// 같은 번호 중복 표시
+function flagDuplicates(){
+  const counts={};
+  queue.forEach(q=>counts[q.saveName]=(counts[q.saveName]||0)+1);
+  let dup=0;
+  queue.forEach(q=>{
+    if(counts[q.saveName]>1){ q.el.classList.add("dup"); dup++; }
+    else q.el.classList.remove("dup");
+  });
+  $("#dupWarn").textContent = dup ? `⚠ 같은 번호 ${dup}건 — 덮어쓰기됩니다` : "";
+}
+
+// ── 한 개 업로드 ──
+function uploadOne(item){
+  return new Promise((resolve)=>{
+    const fd=new FormData();
+    fd.append("file", item.file);
+    fd.append("filename", item.saveName);   // 저장 이름 지정
+    const folder=folderEl.value.trim();
+    if(folder) fd.append("folder", folder);
+
+    const xhr=new XMLHttpRequest();
+    xhr.open("POST", WORKER+"/upload");
+    xhr.setRequestHeader("X-Access-Code", codeEl.value.trim());
+    xhr.upload.onprogress=(e)=>{
+      if(e.lengthComputable){
+        const p=Math.round(e.loaded/e.total*100);
+        item.bar.style.width=p+"%"; item.st.textContent=p+"%";
+      }
+    };
+    xhr.onload=()=>{
+      if(xhr.status===200){
+        item.el.classList.add("done"); item.bar.style.width="100%";
+        item.st.textContent="완료"; resolve(true);
+      }else{
+        item.el.classList.add("err");
+        item.st.textContent = xhr.status===401 ? "코드X" : "실패";
+        resolve(false);
+      }
+    };
+    xhr.onerror=()=>{ item.el.classList.add("err"); item.st.textContent="실패"; resolve(false); };
+    xhr.send(fd);
+  });
+}
+
+async function uploadAll(){
+  if(!codeEl.value.trim()){ toast("접근 코드를 입력하세요", true); codeEl.focus(); return; }
+  if(!folderEl.value.trim()){
+    if(!confirm("폴더명이 비어 있습니다. 최상위에 올리면 미리보기에 연결되지 않을 수 있어요. 그래도 진행할까요?")) return;
+  }
+  const pending = queue.filter(q=>!q.el.classList.contains("done"));
+  if(!pending.length){ toast("올릴 파일이 없습니다", true); return; }
+  $("#uploadBtn").disabled=true;
+  let ok=0, fail=0;
+  for(const item of pending){
+    const r=await uploadOne(item);
+    r?ok++:fail++;
+  }
+  $("#uploadBtn").disabled=false;
+  toast(`업로드 완료 · 성공 ${ok}${fail?` / 실패 ${fail}`:""}`, fail>0);
+  // 방금 올린 폴더로 목록 필터 이동
+  const folder=folderEl.value.trim();
+  if(folder) activeFolder=folder;
+  checkConn();
+}
+
+// ── 이벤트 ──
+const drop=$("#drop"), picker=$("#picker");
+drop.addEventListener("click", ()=>picker.click());
+picker.addEventListener("change", e=>{ addToQueue(e.target.files); picker.value=""; });
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over");}));
+drop.addEventListener("drop", e=>{ if(e.dataTransfer.files.length) addToQueue(e.dataTransfer.files); });
+$("#uploadBtn").addEventListener("click", uploadAll);
+$("#clearBtn").addEventListener("click", ()=>{ queue=[]; $("#queue").innerHTML=""; $("#actions").style.display="none"; $("#dupWarn").textContent=""; });
+
+checkConn();
+</script>
+</body>
+</html>
