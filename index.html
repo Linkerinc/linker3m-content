@@ -186,13 +186,12 @@
 <script>
 /* ===================== 설정 ===================== */
 const CONFIG = {
-  // 구글 시트: 파일>웹에 게시>CSV 로 받은 주소를 여기에 넣으세요.
+  // 구글 시트: 파일>웹에 게시>CSV 로 받은 주소
   SHEET_CSV_URL: "https://docs.google.com/spreadsheets/d/e/2PACX-1vR51nrZo0fd1cPbNUYG1Pqw0_zOux2Z1lkG353JTeuHJ_c28ePAgTyyd91EmjVfeQ/pub?gid=1675444034&single=true&output=csv",
-  // 깃허브 저장소 (이미지 폴더가 들어갈 곳)
-  GH_OWNER: "Linkerinc",
-  GH_REPO: "linker3m-content",
-  GH_BRANCH: "main",
-  GH_IMG_ROOT: "",   // 저장소 루트 바로 아래 제품명 폴더
+  // Cloudflare R2 공개 주소 (이미지 호스팅)
+  R2_BASE: "https://pub-d90c2aac746d47f9b1151fde9613db98.r2.dev",
+  // R2 폴더 안 이미지 최대 장수(자동 탐색용)
+  MAX_IMAGES_PER_PRODUCT: 30,
   ADMIN_PW: "9087"
 };
 const CAT_ORDER=["쇼츠영상","개인안전보호구","에어로졸/접착제","산업용 테이프","자동차유지보수","건물 유지관리","헬스케어","필터제품","위생관리용품","연마제","썸네일"];
@@ -218,19 +217,29 @@ function parseCSV(text){
   return rows;
 }
 async function loadProducts(){
-  if(!CONFIG.SHEET_CSV_URL){PRODUCTS=DEMO.slice();afterLoad("데모 데이터입니다. 구글 시트를 연결하면 실제 제품이 표시됩니다.");return}
+  PRODUCTS=[];
+  if(!CONFIG.SHEET_CSV_URL){
+    PRODUCTS=DEMO.slice();
+    afterLoad("시트 주소가 설정되지 않았습니다.");
+    return;
+  }
   try{
     const res=await fetch(CONFIG.SHEET_CSV_URL);const txt=await res.text();
     const rows=parseCSV(txt);const head=rows[0].map(h=>h.trim());
     const idx=n=>head.findIndex(h=>h.replace(/\s/g,"").includes(n));
     const ci=idx("구분"),ni=idx("제품명"),di=idx("다운로드"),ti=idx("등록일"),fi=idx("폴더명");
     PRODUCTS=rows.slice(1).filter(r=>r[ni]&&r[ni].trim()).map(r=>({
-      category:(r[ci]||"").trim(),name:(r[ni]||"").trim(),
-      download:(r[di]||"").trim(),date:normDate((r[ti]||"").trim()),
+      category:(r[ci]||"").trim(),
+      name:(r[ni]||"").trim(),
+      download:(r[di]||"").trim(),
+      date:normDate((r[ti]||"").trim()),
       folder:(fi>=0&&r[fi]?r[fi].trim():"")
     }));
     afterLoad("");
-  }catch(e){PRODUCTS=DEMO.slice();afterLoad("시트를 불러오지 못했습니다. 데모 데이터를 표시합니다.")}
+  }catch(e){
+    PRODUCTS=DEMO.slice();
+    afterLoad("시트를 불러오지 못했습니다. 데모 데이터를 표시합니다.");
+  }
 }
 
 function normDate(v){
@@ -273,76 +282,61 @@ function render(){
 }
 
 /* ===================== 깃허브 폴더에서 이미지 자동 읽기 ===================== */
-async function fetchImages(name, folder){
+async function fetchImages(name, folderPath){
   await loadTree();
-  const fname=folder||name;
-  return imagesFromTree(fname);
+  if(folderPath) return imagesFromTree(folderPath);
+  // 폴더 경로 없으면 시트 폴더명 또는 제품명으로 트리 검색
+  const tryPath=name;
+  // 카테고리 미상: 트리에서 끝이 /제품명/로 끝나는 폴더 찾기
+  if(TREE){
+    const cand=[...new Set(TREE.map(p=>{const parts=p.split('/');return parts.length>=3?parts.slice(0,2).join('/'):null}).filter(Boolean))];
+    const hit=cand.find(p=>p.endsWith('/'+name));
+    if(hit) return imagesFromTree(hit);
+  }
+  return imagesFromTree(tryPath);
 }
 
 
 
-/* 저장소 전체 파일 트리를 한 번에 로드 (rate limit 방지 핵심) */
-let TREE=null, TREE_FOLDERS=null;
-const TREE_TTL=30*60*1000; // 30분 캐시
-async function loadTree(){
-  if(TREE!==null) return TREE;
-  // 세션 캐시 확인 (새로고침해도 30분 유지)
-  try{
-    const c=JSON.parse(sessionStorage.getItem('l3m_tree')||'null');
-    if(c && (Date.now()-c.t < TREE_TTL)){ TREE=c.tree; TREE_FOLDERS=c.folders; return TREE; }
-  }catch(e){}
-  const api=`https://api.github.com/repos/${CONFIG.GH_OWNER}/${CONFIG.GH_REPO}/git/trees/${CONFIG.GH_BRANCH}?recursive=1`;
-  try{
-    const res=await fetch(api);
-    if(!res.ok)throw 0;
-    const data=await res.json();
-    TREE=data.tree.filter(x=>x.type==="blob").map(x=>x.path);
-    // 최상위 폴더 이름 모으기
-    const set=new Set();
-    TREE.forEach(p=>{const i=p.indexOf('/'); if(i>0) set.add(p.slice(0,i));});
-    TREE_FOLDERS=[...set];
-    try{ sessionStorage.setItem('l3m_tree', JSON.stringify({t:Date.now(),tree:TREE,folders:TREE_FOLDERS})); }catch(e){}
-  }catch(e){ TREE=TREE||[]; TREE_FOLDERS=TREE_FOLDERS||[]; }
-  return TREE;
-}
-function imagesFromTree(folder){
-  if(!TREE) return [];
-  const prefix=folder+"/";
-  const base=`https://raw.githubusercontent.com/${CONFIG.GH_OWNER}/${CONFIG.GH_REPO}/${CONFIG.GH_BRANCH}/`;
-  return TREE.filter(p=>p.startsWith(prefix) && /\.(png|jpe?g|gif|webp)$/i.test(p) && p.indexOf('/',prefix.length)<0)
-    .sort((a,b)=>{const na=parseInt(a.split('/').pop()),nb=parseInt(b.split('/').pop());if(!isNaN(na)&&!isNaN(nb))return na-nb;return a.localeCompare(b);})
-    .map(p=>base+p.split('/').map(encodeURIComponent).join('/'));
+/* R2 이미지 헬퍼 */
+const IMG_EXT=["png","jpg","jpeg","gif","webp"];
+const imgCache={};
+
+function r2Url(folderName, filename){
+  return `${CONFIG.R2_BASE}/${encodeURIComponent(folderName)}/${encodeURIComponent(filename)}`;
 }
 
-/* 저장소 폴더 목록 캐시 + 자동 매칭 */
-let REPO_FOLDERS=null;
-function normName(x){
-  if(!x) return "";
-  x=String(x);
-  x=x.replace(/상세페이지/g,"").replace(/업로드\s*요청/g,"").replace(/시리즈/g,"");
-  x=x.replace(/3M|3m/g,"").replace(/®|™/g,"");
-  x=x.replace(/[\s\-_(),.\/+]/g,"");
-  return x.toLowerCase();
+// 이미지가 실제 존재하는지 HEAD 요청으로 확인
+async function exists(url){
+  try{ const r=await fetch(url,{method:"HEAD"}); return r.ok; }catch(e){ return false; }
 }
-async function loadRepoFolders(){
-  if(REPO_FOLDERS!==null) return REPO_FOLDERS;
-  await loadTree();
-  REPO_FOLDERS=TREE_FOLDERS||[];
-  return REPO_FOLDERS;
+
+// 제품 폴더에서 1번부터 순서대로 이미지 탐색 (1, 2, 3... 형식)
+async function fetchImagesR2(folderName){
+  if(imgCache[folderName]) return imgCache[folderName];
+  const found=[];
+  for(let i=1;i<=CONFIG.MAX_IMAGES_PER_PRODUCT;i++){
+    let hit=null;
+    for(const ext of IMG_EXT){
+      const url=r2Url(folderName, `${i}.${ext}`);
+      if(await exists(url)){ hit=url; break; }
+    }
+    if(hit) found.push(hit);
+    else if(found.length>0) break; // 연속된 번호가 끊기면 중단
+    else if(i>=3) break; // 1~3번도 없으면 폴더 자체가 없는 것으로 간주
+  }
+  imgCache[folderName]=found;
+  return found;
 }
-function matchFolder(product){
-  // 1. 폴더명 칸이 적혀 있으면 그걸 최우선
-  if(product.folder) return product.folder;
-  if(!REPO_FOLDERS||!REPO_FOLDERS.length) return product.name;
-  const target=normName(product.name);
-  // 정확히 일치
-  let hit=REPO_FOLDERS.find(f=>normName(f)===target);
-  if(hit) return hit;
-  // 폴더 핵심이 제품명 핵심을 포함하거나 그 반대
-  hit=REPO_FOLDERS.find(f=>{const nf=normName(f);return nf&&target&&(nf.includes(target)||target.includes(nf))});
-  if(hit) return hit;
-  return product.name; // 못 찾으면 제품명 그대로(없으면 이미지 비표시)
-}
+
+// 기존 함수명 호환 (다른 곳에서 호출하는 코드 안 깨지게)
+async function loadTree(){ return []; }
+async function loadRepoFolders(){ return []; }
+function imagesFromTree(p){ return []; }
+function normName(x){ if(!x)return ""; return String(x).replace(/[\s\-_(),.\/+]/g,"").replace(/3M|3m/g,"").replace(/®|™/g,"").toLowerCase(); }
+function matchFolder(p){ return p.folder || p.name; }
+
+let REPO_PRODUCTS=null, REPO_FOLDERS=null;
 
 /* ===================== 미리보기 모달 ===================== */
 const overlay=document.getElementById('overlay');
@@ -354,10 +348,9 @@ async function openModal(p){
   const dl=document.getElementById('m-dl');
   if(p.download){dl.href=p.download;dl.setAttribute('target','_blank');dl.onclick=null;dl.style.display="inline-block"}else dl.style.display="none";
   overlay.classList.add('open');document.body.style.overflow='hidden';
-  await loadRepoFolders();
-  const fdr=matchFolder(p);
-  const imgs=await fetchImages(p.name,fdr);
-  if(!imgs.length){body.innerHTML=`<div class="loading">등록된 미리보기 이미지가 없습니다.<br><span style="font-size:12px">깃허브 ${p.folder||p.name}/ 폴더에 이미지를 올리면 표시됩니다.</span></div>`;return}
+  const folderName = p.folder || p.name;
+  const imgs = await fetchImagesR2(folderName);
+  if(!imgs.length){body.innerHTML=`<div class="loading">등록된 미리보기 이미지가 없습니다.<br><span style="font-size:12px">R2 ${p.folder||p.name}/ 폴더에 이미지를 올리면 표시됩니다.</span></div>`;return}
   body.innerHTML=imgs.map(src=>`<img src="${src}" alt="${p.name}" loading="lazy">`).join('');
 }
 function closeModal(){overlay.classList.remove('open');document.body.style.overflow=''}
@@ -446,8 +439,8 @@ async function makePPT(){
     sl.addText(p.name,{x:0.4,y:0.3,w:12.5,h:0.6,fontSize:24,bold:true,fontFace:"맑은 고딕"});
     sl.addText(`Download : ${p.download||"-"}`,{x:0.4,y:1.0,w:12.5,h:0.4,fontSize:12,color:"1f7a44",fontFace:"맑은 고딕"});
     sl.addText(`등록일 : ${p.date||"-"}`,{x:0.4,y:1.4,w:12.5,h:0.4,fontSize:12,color:"888888",fontFace:"맑은 고딕"});
-    const fdr=matchFolder(p);
-    const imgs=await fetchImages(p.name,fdr);
+    const folderName = p.folder || p.name;
+    const imgs = await fetchImagesR2(folderName);
     const n=Math.min(imgs.length,12);
     if(n>0){
       const cols=n<=4?n:(n<=6?3:4);const rows=Math.ceil(n/cols);
@@ -486,21 +479,28 @@ function megaOpen(url){
 async function checkMatch(){
   const box=document.getElementById('matchResult');
   box.style.display='block';
-  box.innerHTML="폴더 목록을 확인하는 중…";
-  await loadRepoFolders();
-  if(!REPO_FOLDERS||!REPO_FOLDERS.length){box.innerHTML="<span style='color:#c0392b'>깃허브에서 폴더 목록을 가져오지 못했습니다. 잠시 후 다시 시도해주세요.</span>";return}
-  let ok=[],miss=[];
-  PRODUCTS.forEach(p=>{
-    const f=matchFolder(p);
-    const found=REPO_FOLDERS.includes(f)||p.folder;
-    if(found) ok.push(`${p.name}  →  ${f}`);
-    else miss.push(p.name);
-  });
-  let html=`<div style="margin-bottom:8px"><b>연결된 제품: ${ok.length}개</b> / 폴더 못 찾음: <b style="color:#c0392b">${miss.length}개</b></div>`;
-  if(miss.length){
-    html+=`<div style="background:#fff3f3;border:1px solid #f0c0c0;border-radius:8px;padding:12px;margin-bottom:10px"><b>폴더를 못 찾은 제품 (시트 '폴더명' 칸에 실제 폴더 이름을 적어주세요):</b><br>`+miss.map(m=>"· "+m).join("<br>")+`</div>`;
+  box.innerHTML="R2 폴더 상태를 확인하는 중… (시간이 좀 걸립니다)";
+  const withImg=[], noImg=[], noDl=[];
+  for(let i=0;i<PRODUCTS.length;i++){
+    const p=PRODUCTS[i];
+    const folderName=p.folder||p.name;
+    const imgs=await fetchImagesR2(folderName);
+    if(imgs.length){
+      if(p.download) withImg.push(`${p.category||"미분류"} / ${p.name} (이미지 ${imgs.length}장)`);
+      else noDl.push(`${p.category||"미분류"} / ${p.name}`);
+    }else{
+      noImg.push(`${p.category||"미분류"} / ${p.name}`);
+    }
+    box.innerHTML=`확인 중… ${i+1}/${PRODUCTS.length}`;
   }
-  html+=`<details><summary style="cursor:pointer;color:#2456c9">연결된 제품 ${ok.length}개 보기</summary><div style="max-height:240px;overflow:auto;background:#f7f7f7;border-radius:8px;padding:12px;margin-top:8px;font-size:12.5px;line-height:1.8">`+ok.map(o=>o).join("<br>")+`</div></details>`;
+  let html=`<div style="margin-bottom:10px;font-size:14px"><b>완성:</b> ${withImg.length}개 &nbsp;|&nbsp; <b style="color:#c0392b">이미지 없음:</b> ${noImg.length}개 &nbsp;|&nbsp; <b style="color:#d68910">다운로드 링크 없음:</b> ${noDl.length}개</div>`;
+  if(noImg.length){
+    html+=`<div style="background:#fff3f3;border:1px solid #f0c0c0;border-radius:8px;padding:12px;margin-bottom:10px"><b>R2에 이미지 폴더가 아직 안 올라간 제품:</b><br>`+noImg.map(m=>"· "+m).join("<br>")+`</div>`;
+  }
+  if(noDl.length){
+    html+=`<div style="background:#fff9e6;border:1px solid #f0d8a0;border-radius:8px;padding:12px;margin-bottom:10px"><b>이미지는 있는데 시트에 다운로드 링크 없음:</b><br>`+noDl.map(m=>"· "+m).join("<br>")+`</div>`;
+  }
+  html+=`<details><summary style="cursor:pointer;color:#2456c9">완성된 제품 ${withImg.length}개 보기</summary><div style="max-height:240px;overflow:auto;background:#f7f7f7;border-radius:8px;padding:12px;margin-top:8px;font-size:12.5px;line-height:1.8">`+withImg.map(o=>o).join("<br>")+`</div></details>`;
   box.innerHTML=html;
 }
 
