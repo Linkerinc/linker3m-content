@@ -192,7 +192,7 @@ const CONFIG = {
   // Cloudflare R2 공개 주소 (이미지 호스팅)
   R2_BASE: "https://pub-d90c2aac746d47f9b1151fde9613db98.r2.dev",
   // R2 폴더 안 이미지 최대 장수(자동 탐색용)
-  MAX_IMAGES_PER_PRODUCT: 30,
+  MAX_IMAGES_PER_PRODUCT: 20,
   ADMIN_PW: "9087"
 };
 const CAT_ORDER=["쇼츠영상","개인안전보호구","에어로졸/접착제","산업용 테이프","자동차유지보수","건물 유지관리","헬스케어","필터제품","위생관리용품","연마제","썸네일"];
@@ -309,7 +309,7 @@ async function fetchImages(name, folderPath){
 
 
 /* R2 이미지 헬퍼 */
-const IMG_EXT=["png","jpg","jpeg","gif","webp"];
+const IMG_EXT=["png","gif","jpg"];  // 실제 사용 확장자만 (속도)
 const imgCache={};
 
 function r2Url(folderName, filename){
@@ -336,20 +336,29 @@ async function findImageAtIndex(folderName, idx){
   return results.find(x=>x!==null) || null;
 }
 
-// 제품 폴더에서 1번부터 순서대로 이미지 탐색 (병렬 처리)
+// 제품 폴더에서 이미지 탐색 (1차 1~8번 빠르게, 더 있으면 9~20번 추가)
 async function fetchImagesR2(folderName){
   if(imgCache[folderName]) return imgCache[folderName];
-  // 모든 번호를 병렬로 탐색
-  const tasks = [];
-  for(let i=1;i<=CONFIG.MAX_IMAGES_PER_PRODUCT;i++){
-    tasks.push(findImageAtIndex(folderName, i));
+  async function scan(from, to){
+    const tasks=[];
+    for(let i=from;i<=to;i++) tasks.push(findImageAtIndex(folderName, i));
+    return Promise.all(tasks);
   }
-  const results = await Promise.all(tasks);
-  // 연속된 번호만 사용 (중간이 비면 거기서 끊음)
+  // 1차: 1~8번 (대부분 제품이 여기 안에 들어옴)
+  let results = await scan(1, 8);
   const found=[];
+  let broke=false;
   for(let i=0;i<results.length;i++){
     if(results[i]) found.push(results[i]);
-    else if(found.length>0) break;
+    else { broke=true; break; }
+  }
+  // 8번까지 꽉 찼고 끊긴 적 없으면 → 더 긴 제품일 수 있으니 9~20번 추가 탐색
+  if(!broke && found.length===8){
+    const more = await scan(9, CONFIG.MAX_IMAGES_PER_PRODUCT);
+    for(let i=0;i<more.length;i++){
+      if(more[i]) found.push(more[i]);
+      else break;
+    }
   }
   imgCache[folderName]=found;
   return found;
