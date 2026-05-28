@@ -316,24 +316,40 @@ function r2Url(folderName, filename){
   return `${CONFIG.R2_BASE}/${encodeURIComponent(folderName)}/${encodeURIComponent(filename)}`;
 }
 
-// 이미지가 실제 존재하는지 HEAD 요청으로 확인
-async function exists(url){
-  try{ const r=await fetch(url,{method:"HEAD"}); return r.ok; }catch(e){ return false; }
+// Image() 객체로 실제 로드 가능 여부 확인 (HEAD 차단 회피)
+function imageLoads(url){
+  return new Promise(resolve=>{
+    const img=new Image();
+    img.onload=()=>resolve(true);
+    img.onerror=()=>resolve(false);
+    img.src=url;
+  });
 }
 
-// 제품 폴더에서 1번부터 순서대로 이미지 탐색 (1, 2, 3... 형식)
+// 한 번호의 가능한 확장자들을 동시에 시도, 첫 성공 반환
+async function findImageAtIndex(folderName, idx){
+  const candidates = IMG_EXT.map(ext=>r2Url(folderName, `${idx}.${ext}`));
+  const results = await Promise.all(candidates.map(async u=>{
+    const ok = await imageLoads(u);
+    return ok ? u : null;
+  }));
+  return results.find(x=>x!==null) || null;
+}
+
+// 제품 폴더에서 1번부터 순서대로 이미지 탐색 (병렬 처리)
 async function fetchImagesR2(folderName){
   if(imgCache[folderName]) return imgCache[folderName];
-  const found=[];
+  // 모든 번호를 병렬로 탐색
+  const tasks = [];
   for(let i=1;i<=CONFIG.MAX_IMAGES_PER_PRODUCT;i++){
-    let hit=null;
-    for(const ext of IMG_EXT){
-      const url=r2Url(folderName, `${i}.${ext}`);
-      if(await exists(url)){ hit=url; break; }
-    }
-    if(hit) found.push(hit);
-    else if(found.length>0) break; // 연속된 번호가 끊기면 중단
-    else if(i>=3) break; // 1~3번도 없으면 폴더 자체가 없는 것으로 간주
+    tasks.push(findImageAtIndex(folderName, i));
+  }
+  const results = await Promise.all(tasks);
+  // 연속된 번호만 사용 (중간이 비면 거기서 끊음)
+  const found=[];
+  for(let i=0;i<results.length;i++){
+    if(results[i]) found.push(results[i]);
+    else if(found.length>0) break;
   }
   imgCache[folderName]=found;
   return found;
