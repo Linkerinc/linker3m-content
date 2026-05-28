@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
 <style>
   :root{
@@ -275,10 +276,19 @@ function render(){
   if(!list.length){rowsEl.innerHTML=`<tr><td colspan="4" class="empty">검색 결과가 없습니다.</td></tr>`;return}
   rowsEl.innerHTML=list.map(p=>{
     const i=PRODUCTS.indexOf(p);
-    const dl=p.download?`<a class="btn btn-dl" href="${p.download}" target="_blank" rel="noopener">다운로드</a>`:`<a class="btn btn-dl none">준비중</a>`;
+    let dl;
+    const isVideo = (p.category||"").includes("쇼츠");
+    if(isVideo && p.download){
+      dl = `<a class="btn btn-dl" href="${p.download}" target="_blank" rel="noopener">다운로드</a>`;
+    }else if(!isVideo){
+      dl = `<button class="btn btn-dl" data-zip="${i}">다운로드</button>`;
+    }else{
+      dl = `<a class="btn btn-dl none">준비중</a>`;
+    }
     return `<tr><td><span class="cat">${p.category}</span></td><td><span class="pname">${p.name}</span></td><td class="c"><button class="btn btn-prev" data-i="${i}">미리보기</button></td><td class="c">${dl}</td></tr>`;
   }).join('');
   rowsEl.querySelectorAll('.btn-prev').forEach(b=>b.onclick=()=>openModal(PRODUCTS[b.dataset.i]));
+  rowsEl.querySelectorAll('.btn-dl[data-zip]').forEach(b=>b.onclick=()=>downloadAsZip(PRODUCTS[b.dataset.zip], b));
 }
 
 /* ===================== 깃허브 폴더에서 이미지 자동 읽기 ===================== */
@@ -346,7 +356,17 @@ async function openModal(p){
   const body=document.getElementById('m-body');
   body.innerHTML=`<div class="loading">이미지를 불러오는 중…</div>`;
   const dl=document.getElementById('m-dl');
-  if(p.download){dl.href=p.download;dl.setAttribute('target','_blank');dl.onclick=null;dl.style.display="inline-block"}else dl.style.display="none";
+  const isVideo = (p.category||"").includes("쇼츠");
+  if(isVideo && p.download){
+    dl.href=p.download; dl.setAttribute('target','_blank'); dl.onclick=null;
+    dl.style.display="inline-block"; dl.textContent="다운로드";
+  }else if(!isVideo){
+    dl.removeAttribute('href'); dl.removeAttribute('target');
+    dl.onclick=(e)=>{e.preventDefault();downloadAsZip(p,dl);};
+    dl.style.display="inline-block"; dl.textContent="다운로드 (이미지 zip)";
+  }else{
+    dl.style.display="none";
+  }
   overlay.classList.add('open');document.body.style.overflow='hidden';
   const folderName = p.folder || p.name;
   const imgs = await fetchImagesR2(folderName);
@@ -502,6 +522,44 @@ async function checkMatch(){
   }
   html+=`<details><summary style="cursor:pointer;color:#2456c9">완성된 제품 ${withImg.length}개 보기</summary><div style="max-height:240px;overflow:auto;background:#f7f7f7;border-radius:8px;padding:12px;margin-top:8px;font-size:12.5px;line-height:1.8">`+withImg.map(o=>o).join("<br>")+`</div></details>`;
   box.innerHTML=html;
+}
+
+
+/* R2 이미지를 zip으로 묶어 다운로드 */
+async function downloadAsZip(p, btnEl){
+  const folderName = p.folder || p.name;
+  const originalText = btnEl.textContent;
+  btnEl.textContent = "준비 중…";
+  btnEl.style.pointerEvents = "none";
+  try{
+    const imgs = await fetchImagesR2(folderName);
+    if(!imgs.length){ alert("이 제품의 이미지가 R2에 아직 없습니다."); return; }
+    if(typeof JSZip === "undefined"){ alert("zip 라이브러리를 불러오지 못했습니다. 새로고침 후 다시 시도해 주세요."); return; }
+    const zip = new JSZip();
+    btnEl.textContent = `0/${imgs.length} 다운로드 중…`;
+    for(let i=0; i<imgs.length; i++){
+      try{
+        const r = await fetch(imgs[i]);
+        const blob = await r.blob();
+        const ext = imgs[i].split(".").pop().split("?")[0];
+        zip.file(`${i+1}.${ext}`, blob);
+        btnEl.textContent = `${i+1}/${imgs.length} 다운로드 중…`;
+      }catch(e){}
+    }
+    btnEl.textContent = "압축 중…";
+    const blob = await zip.generateAsync({type:"blob"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${folderName}.zip`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }catch(e){
+    alert("다운로드 중 오류가 발생했습니다: " + e.message);
+  }finally{
+    btnEl.textContent = originalText;
+    btnEl.style.pointerEvents = "";
+  }
 }
 
 loadProducts();
