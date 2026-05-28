@@ -386,14 +386,33 @@ function getFiltered(){
 }
 function updateAdminStatus(){const n=getFiltered().length;document.getElementById('adminStatus').textContent=`대상: ${n}개 제품`}
 
-/* ----- 엑셀 ----- */
-function makeXLSX(){
+/* ----- 엑셀 (증빙용) ----- */
+async function makeXLSX(){
   const list=getFiltered();
-  const data=[["구분","제품명","미리보기URL","다운로드URL","등록일"]];
-  list.forEach(p=>data.push([p.category,p.name,`${location.origin}`,p.download||"",p.date||""]));
-  const ws=XLSX.utils.aoa_to_sheet(data);const wb=XLSX.utils.book_new();
+  const errEl=document.getElementById('adminErr');errEl.textContent="";
+  if(!list.length){errEl.textContent="대상 제품이 없습니다. 기간/카테고리를 확인하세요.";return}
+  const stat=document.getElementById('adminStatus');
+  const data=[["구분","제품명","이미지 수","자료 위치(URL)"]];
+  for(let k=0;k<list.length;k++){
+    const p=list[k];
+    stat.textContent=`엑셀 생성 중… ${k+1}/${list.length} (${p.name})`;
+    const folderName = p.folder || p.name;
+    const imgs = await fetchImagesR2(folderName);
+    const isVideo = (p.category||"").includes("쇼츠");
+    let url;
+    if(isVideo && p.download){
+      url = p.download;  // 쇼츠: 시트 다운로드 링크
+    }else{
+      url = `${CONFIG.WORKER_BASE}/list?prefix=${encodeURIComponent(folderName + "/")}`;  // 상세페이지: R2 폴더 URL
+    }
+    data.push([p.category, p.name, imgs.length, url]);
+  }
+  const ws=XLSX.utils.aoa_to_sheet(data);
+  ws['!cols']=[{wch:16},{wch:34},{wch:9},{wch:70}];  // 열 너비
+  const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,"제작리스트");
   XLSX.writeFile(wb,`Linker_제작리스트_${fmt(new Date())}.xlsx`);
+  updateAdminStatus();
 }
 
 /* ----- PPT ----- */
@@ -415,14 +434,30 @@ async function makePPT(){
     const p=list[k];stat.textContent=`PPT 생성 중… ${k+1}/${list.length} (${p.name})`;
     const sl=pptx.addSlide();
     sl.addText(p.name,{x:0.4,y:0.3,w:12.5,h:0.6,fontSize:24,bold:true,fontFace:"맑은 고딕"});
-    sl.addText(`Download : ${p.download||"-"}`,{x:0.4,y:1.0,w:12.5,h:0.4,fontSize:12,color:"1f7a44",fontFace:"맑은 고딕"});
-    sl.addText(`등록일 : ${p.date||"-"}`,{x:0.4,y:1.4,w:12.5,h:0.4,fontSize:12,color:"888888",fontFace:"맑은 고딕"});
+
+    // 이미지를 먼저 가져온다 (다운로드 줄에서 장수 N을 쓰기 위해)
     const folderName = p.folder || p.name;
     const imgs = await fetchImagesR2(folderName);
+
+    // 다운로드 줄 분기:
+    //  - 쇼츠영상(시트 다운로드 링크 있음): 기존처럼 링크 표기
+    //  - 상세페이지(링크 없음): "자료 등록 완료 · 이미지 N장" + R2 폴더 URL
+    const isVideo = (p.category||"").includes("쇼츠");
+    let dlText;
+    if(isVideo && p.download){
+      dlText = `Download : ${p.download}`;
+    }else{
+      const r2folder = `${CONFIG.WORKER_BASE}/list?prefix=${encodeURIComponent(folderName + "/")}`;
+      dlText = `자료 등록 완료 · 이미지 ${imgs.length}장   |   ${r2folder}`;
+    }
+    sl.addText(dlText,{x:0.4,y:1.0,w:12.5,h:0.4,fontSize:12,color:"1f7a44",fontFace:"맑은 고딕"});
+
+    // 등록일 줄 제거됨 (요청에 따라)
+
     const n=Math.min(imgs.length,12);
     if(n>0){
       const cols=n<=4?n:(n<=6?3:4);const rows=Math.ceil(n/cols);
-      const gx=0.4,gy=2.0,gw=12.5,gh=5.3;const cw=gw/cols,ch=gh/rows;
+      const gx=0.4,gy=1.7,gw=12.5,gh=5.6;const cw=gw/cols,ch=gh/rows;
       for(let i=0;i<n;i++){
         const r=Math.floor(i/cols),c=i%cols;
         try{
