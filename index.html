@@ -253,7 +253,21 @@ function normDate(v){
   return v;
 }
 
-function afterLoad(msg){buildCats();render();fillAdminCat();if(msg)document.getElementById('count').textContent=msg}
+function afterLoad(msg){buildCats();render();fillAdminCat();if(msg)document.getElementById('count').textContent=msg;openFromQuery()}
+
+/* ?p=제품명 으로 들어오면 해당 제품 미리보기 모달 자동 오픈 (증빙 링크용) */
+function openFromQuery(){
+  const params=new URLSearchParams(location.search);
+  const pname=params.get('p');
+  if(!pname) return;
+  const target=PRODUCTS.find(p=>p.name===pname || (p.folder&&p.folder===pname));
+  if(target){
+    // 검색창에도 채워서 표에서 바로 보이게
+    const qel=document.getElementById('q');
+    if(qel){qel.value=pname;render();}
+    openModal(target);
+  }
+}
 
 /* ===================== 카테고리/표 ===================== */
 function buildCats(){
@@ -403,7 +417,7 @@ async function makeXLSX(){
     if(isVideo && p.download){
       url = p.download;  // 쇼츠: 시트 다운로드 링크
     }else{
-      url = `${CONFIG.WORKER_BASE}/list?prefix=${encodeURIComponent(folderName + "/")}`;  // 상세페이지: R2 폴더 URL
+      url = `${location.origin}/?p=${encodeURIComponent(p.name)}`;  // 상세페이지: 사이트 미리보기 링크
     }
     data.push([p.category, p.name, imgs.length, url]);
   }
@@ -447,8 +461,8 @@ async function makePPT(){
     if(isVideo && p.download){
       dlText = `Download : ${p.download}`;
     }else{
-      const r2folder = `${CONFIG.WORKER_BASE}/list?prefix=${encodeURIComponent(folderName + "/")}`;
-      dlText = `자료 등록 완료 · 이미지 ${imgs.length}장   |   ${r2folder}`;
+      const viewUrl = `${location.origin}/?p=${encodeURIComponent(p.name)}`;
+      dlText = `자료 등록 완료 · 이미지 ${imgs.length}장   |   ${viewUrl}`;
     }
     sl.addText(dlText,{x:0.4,y:1.0,w:12.5,h:0.4,fontSize:12,color:"1f7a44",fontFace:"맑은 고딕"});
 
